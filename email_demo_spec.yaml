@@ -1,0 +1,23 @@
+spec:
+  container:
+  - name: llmemailservice
+    image: /demos/gen_emails/email_demo_repository/email_demo:0.1
+    env:
+      SNOWFLAKE_ROLE: DEMO_ROLE
+      SNOWFLAKE_WAREHOUSE: EMAIL_DEMO_WH
+      SNOWFLAKE_DATABASE: DEMOS
+      SNOWFLAKE_SCHEMA: GEN_EMAILS
+    resources:
+      requests:
+        nvidia.com/gpu: 1
+      limits:
+        nvidia.com/gpu: 1
+  endpoints:
+  - name: api
+    port: 8001
+  - name: jupyter
+    port: 8888
+    public: true
+  - name: streamlit
+    port: 8501
+    public: true

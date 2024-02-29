@@ -1,0 +1,77 @@
+--INITIAL RESOURCE SETUP--
+USE ROLE securityadmin;
+CREATE ROLE DEMO_ROLE;
+GRANT ROLE DEMO_ROLE to ROLE sysadmin;
+GRANT ROLE DEMO_ROLE to USER "AEVANS@PHDATA.IO";
+USE ROLE sysadmin;
+CREATE DATABASE DEMOS;
+CREATE WAREHOUSE email_demo_wh;
+GRANT USAGE ON WAREHOUSE email_demo_wh TO ROLE demo_role;
+GRANT OWNERSHIP ON DATABASE DEMOS TO ROLE demo_role;
+USE ROLE demo_role;
+CREATE SCHEMA DEMOS.GEN_EMAILS;
+
+
+--ALLOW DEMO_ROLE TO CREATE ENDPOINTS--
+USE ROLE accountadmin;
+GRANT BIND SERVICE ENDPOINT ON ACCOUNT TO ROLE DEMO_ROLE;
+
+--CREATE ACCESS FROM CONTAINER TO HUGGINGFACE (OR ANYWHERE)--
+USE ROLE demo_role;
+CREATE NETWORK RULE allow_all_rule
+  TYPE = 'HOST_PORT'
+  MODE= 'EGRESS'
+  VALUE_LIST = ('0.0.0.0:443','0.0.0.0:80');
+USE ROLE accountadmin;
+CREATE EXTERNAL ACCESS INTEGRATION all_access_integration
+  ALLOWED_NETWORK_RULES = (allow_all_rule)
+  ENABLED = true;
+USE ROLE securityadmin;
+GRANT USAGE ON INTEGRATION all_access_integration TO ROLE demo_role;
+
+  
+--CREATE DOCKER IMAGE REPOSITORY--
+CREATE OR REPLACE IMAGE REPOSITORY email_demo_repository;
+
+
+--CREATE SERVICE SPEC FILE STAGE--
+CREATE STAGE email_demo_stage DIRECTORY = ( ENABLE = true );
+
+-----------------------------------------------
+--PAUSE HERE AND UPLOAD DOCKER IMAGE TO STAGE--
+-----------------------------------------------
+
+--CREATE COMPUTE POOL WITH 1 GPU NODE--
+USE ROLE sysadmin;
+CREATE COMPUTE POOL email_gpu_pool
+    MIN_NODES = 1
+    MAX_NODES = 1
+    INSTANCE_FAMILY = GPU_3;
+DESCRIBE COMPUTE POOL email_gpu_pool;
+
+--GRANT TO DEMO ROLE--
+GRANT USAGE ON COMPUTE POOL email_gpu_pool TO ROLE demo_role;
+GRANT MONITOR ON COMPUTE POOL email_gpu_pool TO ROLE demo_role;
+
+--SWITCH TO DEMO ROLE--
+USE ROLE demo_role;
+
+--CREATE EMAIL GENERATION SERVICE--
+CREATE SERVICE email_demo_service
+    IN COMPUTE POOL email_gpu_pool
+    FROM @email_demo_stage
+    SPEC = 'email_demo_spec.yaml'
+    MIN_INSTANCES = 1
+    MAX_INSTANCES = 1
+    EXTERNAL_ACCESS_INTEGRATIONS = (ALL_ACCESS_INTEGRATION);
+
+DESCRIBE SERVICE email_demo_service;
+SELECT SYSTEM$GET_SERVICE_STATUS('email_demo_service');
+SHOW ENDPOINTS IN SERVICE email_demo_service;
+CALL SYSTEM$GET_SERVICE_LOGS('email_demo_service', '0', 'llmemailservice', 1000);
+
+--CLEANUP--
+DROP SERVICE email_demo_service;
+
+USE ROLE SYSADMIN;
+DROP COMPUTE POOL email_gpu_pool;
